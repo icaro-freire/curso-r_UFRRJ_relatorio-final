@@ -1,0 +1,442 @@
+---
+title: "Relatório Final"
+author: "Ícaro Vidal Freire"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+
+## Objetivos
+
+Realizar, superficialmente, uma análise das taxas de homicídio nos municípios do 
+Rio de Janeiro, disponíveis no *dataset* `municipios_rj5.csv`, usando a linguagem
+e ambiente de programação [R](https://www.r-project.org/).
+
+## Resultados
+
+### Dataset no formato tidy
+
+Para realizarmos a leitura dos dados, usaremos a função `read_csv()` do pacote
+[readr](READR).
+
+Chamaremos o conjunto de dados iniciais por `municipios_bruto`.
+
+```{r, message=FALSE, warning=FALSE}
+municipios_bruto <- readr::read_csv("dados/municipios_rj5.csv") 
+```
+
+Percebemos que o conjunto de dados não se encontra na forma [tidy][TIDY].
+Faremos, então, uma pequena modificação para que o mesmo atenda essa especificação.
+
+Denominaremos o novo conjunto de dados por `municipios_tidy` e usaremos a função `clean_names`, do pacote [janitor](JANI), para deixar o nome das variáveis 
+iniciais, por exemplo, em minúsculas.
+As novas variáveis serão: 
+
+  - **municipios**: nomes dos municípios;
+  - **regiao**: nomes das regiões;
+  - **indicadores**: nome das variáveis númericas que estavam no *dataset* original;
+  - **valor**: valores numéricos dos respectivos indicadores.
+
+Com o seguinte código, organizamos os dados adequadamente para um melhor processamento
+do computador e pacotes:
+
+```{r}
+municipios_tidy <- municipios_bruto |> 
+  janitor::clean_names() |> 
+  tidyr::pivot_longer(
+    !c(municipio, regiao),
+    names_to = "indicadores",
+    values_to = "valor"
+  )
+```
+
+Com isso, podemos prosseguir com as análises.
+
+<!-- links da secao -------------------------------------------------->
+[READR]: https://readr.tidyverse.org/
+[JANI]: https://cran.r-project.org/web/packages/janitor/index.html
+[TIDY]: https://vita.had.co.nz/papers/tidy-data.html
+
+### Explorando as variáveis
+
+Para selecionarmos corretamente os `indicadores`, vamos exibi-los de forma 
+distinta com o comando:
+
+```{r, eval=FALSE}
+municipios_tidy |> 
+  dplyr::distinct(indicadores)
+```
+
+Selecionamos, então, a variável `tx_homicidio_100mil`, de forma literal.
+
+### Calculando sem agrupamento
+
+Uma pergunta que surge, inicialmente, é: "Qual a média da taxa de homicídio dos
+municípios do RJ, nesse conjunto de dados?"
+
+Teremos, então, que seguir o seguinte raciocínio:
+
+  1. Filtrar o indicador "tx_homicidio_100mil";
+  2. Selecionar a variável `valor`;
+  3. Sumarizar as estatísticas convenientes (nesse caso, não apenas a média, mas
+  também a mediana e o desvio padrão);
+  4. Exibi-las em uma tabela.
+
+O código abaixo produz o que desejamos:
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::select(valor) |> 
+  dplyr::summarise(
+    media = mean(valor),
+    mediana = median(valor),
+    desvio_padrao = sd(valor)
+  ) |> 
+  knitr::kable()
+```
+
+Como a `mediana < média`, temos uma **assimetria positiva** dessa variável, que 
+pode ser calculada, efetivamente, com a função `skewness()` do pacote [moments][MOM]:
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::select(valor) |> 
+  moments::skewness()
+```
+Como $\mathrm{AS} = 1.193848 > 0$, confirmamos a positividades da assimetria.
+
+> Provavelmente, algum município possui elevadas taxas de homicídio por 100 mil 
+> habitantes, comparada com as demais.
+
+Isso nos leva a investigarmos esse indicador distribuído por região ou município.
+
+Antes, porém, é interessante notarmos que a curtose desses valores é dada por
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::select(valor) |> 
+  moments::kurtosis()
+```
+
+Logo, os valores das taxas de homicídios dos municípios do Rio de Janeiro, seguem
+uma **distribuição leptocúrtica**, pois $k_m \approx 5.5 > 3$.
+O que mostra, em princípio, elevados valores comparados a uma distribuição normal.
+
+<!-- links da secao -->
+[MOM]: https://cran.r-project.org/web/packages/moments/index.html
+
+### Calculando com agrupamento por `regiao`
+
+Vamos calcular algumas estatísticas relacionadas a esse indicador, agrupado por
+`regiao`.
+
+O passos serão:
+
+  1. Agrupar os dados por `regiao``;
+  2. Filtrar o indicador `tx_homicidio_100mil`;
+  3. Sumarizar as estatísticas convenientes;
+  4. Ordenar, pela média, de forma decrescente, os valores da taxas;
+  5. Exibir a tabela com os resultados desejados.
+  
+```{r}
+municipios_tidy |> 
+  dplyr::group_by(regiao) |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::summarise(
+    media = mean(valor),
+    mediana = median(valor),
+    desvio_padrao = sd(valor)
+  ) |> 
+  dplyr::arrange(desc(media)) |> 
+  knitr::kable()
+```
+
+O resultado é curioso: a maior média na taxa foi encontrada para a região da 
+"Costa Verde", com aproximadamente 58 mortes por 100 mil habitantes.
+Todavia, há uma grande variabilidade na região metropolitana.
+
+Isso pode indicar que existem certas cidades na região metropolitana que possuem 
+uma taxa de homicídio muito elevada, comparada às outras.
+
+Seria interessante investigar quais municípios estariam elevando a variabilidade 
+nessa região.
+
+Uma possível solução seria:
+
+  1. Filtrar o indicador `tx_homicidio_100mil`;
+  2. Ordenar, de forma decrescente o valor da taxa;
+  3. Selecionar o `municipio`, `regiao` e `valor`;
+  4. Exibir numa tabela.
+
+Mas, como existem muitas cidades, vamos selecionar as 10 cidades com maiores
+taxas de homicício.
+
+```{r, message=FALSE}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::arrange(desc(valor)) |> 
+  dplyr::select(municipio, regiao, valor) |> 
+  dplyr::top_n(10) |> 
+  knitr::kable()
+```
+
+Notoriamente, o município de "Queimados" possui 120 mortes por 100 mil habitantes,
+além do município "Japeri", com 85 mortes por 100 mil.
+
+Também é evidente o fato de que das 10 maiores taxas de homicídio, 5 são da região
+"METROPOLITANA".
+Essas taxas, muito provavelmente, distoam da maioria dos outros municípios dessa região.
+O que ajuda entender o porquê da região Metropolitana ter uma média abaixo da 
+região da "Costa Verde", mas uma maior variabilidade.
+
+Todavia, a "visualização" dessas hipóteses e medidas são fundamentais para *insides*
+ou confirmações do que foi exposto até aqui.
+
+## Gráficos
+
+Na construção dos gráficos usamos escalas de cores do pacote [viridis][VIRI] para
+comtemplar leitores que possuem alguma dificuldade em diferenciação entre cores,
+como, por exemplo, daltonismo.
+
+[VIRI]: https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
+
+### Gráfico de densidade das taxas
+
+Podemos usar o gráfico de densidade para visualizarmos a distribuição das taxas
+dos municípios.
+As retas verticais marcam a localização da mediana e da média desses valores.
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::select(valor) |> 
+  ggplot2::ggplot() +
+    ggplot2::aes(x = valor) +
+    ggplot2::geom_density(fill = "#20A387FF") +
+    ggplot2::geom_vline(
+      ggplot2::aes(xintercept = mean(valor)), color = "#440154FF"
+    ) +
+    ggplot2::geom_vline(
+      ggplot2::aes(xintercept = median(valor)), color = "#FDE725FF"
+    ) +
+    ggplot2::annotate("text", x = 35.5, y = 0.01, label = "Média", color = "#440154FF") +
+    ggplot2::annotate("text", x = 17.5, y = 0.01, label = "Mediana", color = "#FDE725FF") +
+    ggplot2::labs(
+      title = "Gráfico de Densidade Geral dos Municípios",
+      x = "Homicídios por 100 mil habitantes",
+      y = ""
+    )
+```
+
+Claramente, uma distrubuição assimétrica positiva, como havíamos verificado
+numericamente.
+
+### Gráfico de densidade comparando as taxas por regiao
+
+Podemos analisar a distribuição da taxa de homicídio por região, individualmente,
+usando os comandos:
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  dplyr::select(regiao, valor) |> 
+  ggplot2::ggplot() +
+    ggplot2::aes(x = valor, fill = regiao) +
+    ggplot2::geom_density(show.legend = FALSE) +
+    ggplot2::facet_wrap(regiao~.) +
+    ggplot2::scale_fill_viridis_d() + 
+    ggplot2::labs(
+      title = "Densidade dos homicídios por região",
+      subtitle = "(Facetadas por região)",
+      x = "",
+      y = ""
+    )
+```
+
+Chama-nos atenção, agora, os baixos valores da região SERRANA.
+
+Todavia, tal gráfico não está muito adequado para compararmos as taxas mais altas,
+comparando por região.
+
+O pacote [ggridges][GGR], dá-nos as ferramentas que precisamos, com a função
+`geom_density_ridges()`
+
+```{r, message=FALSE}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  ggplot2::ggplot() +
+    ggplot2::aes(x = valor, y = regiao, fill = regiao) +
+    ggridges::geom_density_ridges(show.legend = FALSE) +
+    ggplot2::scale_fill_viridis_d() +
+    ggplot2::labs(
+      title = "Densidades dos Homicídios Compadadas por Região",
+      x = "Número de homicídios por 100 mil habitantes",
+      y = ""
+    )
+```
+
+Percebemos que as regiões da COSTA VERDE e METROPOLITANA possuem, nitidamente,
+extensões acima de 75 ou até mesmo 100 homicídios por 100 mil habitantes, o que 
+eleva as taxas de homicídio de uma forma geral.
+
+[GGR]: https://cran.r-project.org/web/packages/ggridges/vignettes/introduction.html
+
+### Gráfico de Boxplot por região.
+
+Uma maneira de investigarmos mais claramente a distribuição desses dados, comparando-os,
+é usando o **boxplot**.
+
+O código abaixo exibe os boxplots das taxas de homicídio, agrupadas por regiões e
+ordenadas de forma crescente, para uma melhor visualização.
+A reta vertical, tracejada em vermelho, é a mediana dos dados.
+Além disso, o gráfico é interativo: posicionando o *mouse* sobre algum elemento,
+ele mostrará seu valor numérico como informação, dentre outros detalhes (por 
+exemplo, selecionar, individualmente, pela legenda, a região desejada).
+
+```{r}
+p <- municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |>
+  ggplot2::ggplot() +
+    ggplot2::aes(
+      x = forcats::fct_reorder(regiao, valor), 
+      y = valor, 
+      fill = regiao
+    ) +
+    ggplot2::geom_boxplot(show.legend = FALSE) +
+    ggplot2::coord_flip() +
+    ggplot2::scale_fill_viridis_d() +
+    ggplot2::labs(
+      title = "Boxplot do Número de Homicídios por 100 mil habitantes",
+      x = "",
+      y = ""
+    ) +
+    ggplot2::geom_hline(yintercept = 25.015, color = "red", linetype = 2) +
+    ggplot2::annotate("text", x = 8, y = 12, label = "Mediana", color = "red")
+  
+    plotly::ggplotly(p)
+```
+
+Tal gráfico nos traz muitas informações, algumas já conhecidas e outras que chamam
+à atenção.
+
+De fato, a mediana da região COSTA VERDE é a maior e logo atrás está a da região
+METROPOLITANA.
+Porém, há dois *Outliers* que saltam aos olhos na refião METROPOLITANA: uma taxa
+de $85.53$ e outra de $120.39$!
+
+Um fato curioso é que, na região SERRANA, a qual possui a menor mediana das taxas,
+possui também um *outliers*: $36.92$.
+Realmente é um número que destoa de todos os outros da região.
+
+Por curiosidade, vamos determinar qual o município da região SERRANA possui essa
+característica infeliz.
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(valor == 36.92) |> 
+  knitr::kable()
+```
+
+### Gráfico de Colunas
+
+A cidade de *Macuco*, portanto, é a cidade da região SERRANA que possui a taxa
+que destoa de todas as cidades dessa região.
+
+O código abaixo exibe as taxas das cidades SERRANAS:
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(regiao == "SERRANA" & indicadores == "tx_homicidio_100mil") |> 
+  ggplot2::ggplot() +
+    ggplot2::aes(
+      x = valor, 
+      y = forcats::fct_reorder(municipio, valor), 
+      fill = municipio
+    ) +
+    ggplot2::geom_col(show.legend = FALSE) +
+    ggplot2::labs(
+      title = "Cidades da região SERRANA",
+      subtitle = "Distribuição da taxa de homicídio (por 100 mil habitantes)",
+      x = "",
+      y = ""
+    ) +
+    ggplot2::scale_fill_viridis_d()
+```
+
+Aliás, poderíamos fazer um gráfico como esse para analisar o comportamento em 
+todos os municípios do *dataset*:
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
+  ggplot2::ggplot() +
+  ggplot2::aes(
+    x = valor , 
+    y = forcats::fct_reorder(municipio, valor) , 
+    fill = regiao
+  ) +
+  ggplot2::geom_col() +
+  ggplot2::scale_fill_viridis_d() +
+  ggplot2::labs(
+    title = "Disposição das taxas de homicídio de todos os municípios",
+    x = "",
+    y = ""
+  )
+```
+
+> Mas, percebe-se que tal gráfico não saiu esteticamente adequado, visto que são
+muitas variáveis (municípios) e alguns ajustes deveriam ser aplicados.
+
+Todavia, interessa-nos analisar, agora, as 10 maiores taxas de homicídios desse
+*dataset*.
+Para tanto, considere o gráfico abaixo:
+
+```{r}
+municipios_tidy |> 
+  dplyr::filter(indicadores == "tx_homicidio_100mil" & valor >= 53.63) |> 
+  ggplot2::ggplot() +
+  ggplot2::aes(
+    x = valor , 
+    y = forcats::fct_reorder(municipio, valor) , 
+    fill = regiao
+  ) +
+  ggplot2::geom_col() +
+  ggplot2::scale_fill_viridis_d() +
+  ggplot2::labs(
+    title = "As 10 maiores taxas de homicídio do RJ",
+    x = "",
+    y = ""
+  )
+```
+
+## Conclusões
+
+Do exposto, concluímos que o conjunto de dados apresenta elevadas taxas de 
+homicídio por 100 mil habitantes.
+Além disso, algumas cidades ainda se destacam por possuírem taxas muito acima das
+já elevadas taxas de sua região.
+Esse fato pode ter ocasionado a elevação da média analisada como um todo.
+
+Também descatacam-se as regiões METROPOLITANA e COSTA VERDE, as quais possuem 
+elevadas taxas, em relação às demais.
+Inclusive, dentre as 10 maiores taxas de homicídio do conjunto de dados, 5 são
+da região METROPOLITANA.
+Porém, a região da COSTA VERDE possui uma maior média.
+Uma possível explicação para esse fato é que a região METROPOLITANA possui maior
+variabilidade, ou seja, ela pode possuir algumas poucas cidades que concentram
+elevadas taxas, mas no geral, as outras cidades estariam abaixo da disposição média
+da região da COSTA VERDE.
+Em outras palavras, a região da COSTA VERDE possui, sistematicamente, taxas maiores, 
+porém, sem *outlies*.
+
+Por fim, mesmo possuindo um único *outlier*, a região SERRANA possui a menor taxa
+de homicídio desses conjunto de dados, comparativamente.
+Para se ter uma ideia, observando o boxplot acima, percebemos que a taxa 
+*outlier* da região SERRANA, taxa essa pertencente ao município de Macuco, é 
+ainda **menor** do que o 1º quartil das taxas da região METROPOLITANA; e, menor 
+do que TODOS os dados da região da COSTA VERDE.
