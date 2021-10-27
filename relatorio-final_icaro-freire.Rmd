@@ -130,7 +130,7 @@ O que mostra, em princípio, elevados valores comparados a uma distribuição no
 <!-- links da secao -->
 [MOM]: https://cran.r-project.org/web/packages/moments/index.html
 
-### Calculando com agrupamento por `regiao`
+### Calculando com agrupamento por região
 
 Vamos calcular algumas estatísticas relacionadas a esse indicador, agrupado por
 `regiao`.
@@ -200,7 +200,7 @@ ou confirmações do que foi exposto até aqui.
 ## Gráficos
 
 Na construção dos gráficos usamos escalas de cores do pacote [viridis][VIRI] para
-comtemplar leitores que possuem alguma dificuldade em diferenciação entre cores,
+contemplar leitores que possuem alguma dificuldade em diferenciação entre cores,
 como, por exemplo, daltonismo.
 
 [VIRI]: https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
@@ -369,31 +369,19 @@ municipios_tidy |>
 ```
 
 Aliás, poderíamos fazer um gráfico como esse para analisar o comportamento em 
-todos os municípios do *dataset*:
+todos os municípios do *dataset*.
+Porém, são 92 muicípios, como podemos verificar com o código abaixo:
 
-```{r}
+```{r, eval=FALSE}
 municipios_tidy |> 
-  dplyr::filter(indicadores == "tx_homicidio_100mil") |> 
-  ggplot2::ggplot() +
-  ggplot2::aes(
-    x = valor , 
-    y = forcats::fct_reorder(municipio, valor) , 
-    fill = regiao
-  ) +
-  ggplot2::geom_col() +
-  ggplot2::scale_fill_viridis_d() +
-  ggplot2::labs(
-    title = "Disposição das taxas de homicídio de todos os municípios",
-    x = "",
-    y = ""
-  )
+  dplyr::select(municipio) |> 
+  dplyr::distinct() |> 
+  dplyr::count()
 ```
 
-> Mas, percebe-se que tal gráfico não saiu esteticamente adequado, visto que são
-muitas variáveis (municípios) e alguns ajustes deveriam ser aplicados.
-
-Todavia, interessa-nos analisar, agora, as 10 maiores taxas de homicídios desse
-*dataset*.
+Isso tornaria o gráfico não muito apresentável.
+Todavia, é suficiente para nossa análise, verificarmos o comportamento das 10 
+maiores taxas de homicídios desse *dataset*.
 Para tanto, considere o gráfico abaixo:
 
 ```{r}
